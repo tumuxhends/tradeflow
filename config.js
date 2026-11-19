@@ -1,0 +1,1 @@
+window.TRADEFLOW_CONFIG = { proxyUrl: 'https://tradeflow-quotes.tumuxhends.workers.dev', eodhdKey: '' };
