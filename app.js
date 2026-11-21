@@ -13,6 +13,7 @@ const BRAND = 'TradeFlow';
      proxyUrl – recommended: your own proxy (see /worker) that holds the token.
      eodhdKey – quick start: the token is sent from the app, so anyone who opens the app can read it. */
 const CONFIG = {
+  apiUrl: '',                             // accounts + referrals API (see /referral); blank = no accounts, everything stays on this device
   proxyUrl: '',
   eodhdKey: '',
   eodhdUrl: 'https://eodhd.com/api/real-time/',
@@ -27,7 +28,10 @@ Object.assign(CONFIG, window.TRADEFLOW_CONFIG || {});
 const LIVE_DATA = !!(CONFIG.proxyUrl || CONFIG.eodhdKey);
 let RATE = CONFIG.fallbackRate, RATE_AT = 0, RATE_LIVE = false;   // 1 USD = RATE UGX
 try { const c = CONFIG.liveRate ? JSON.parse(localStorage.getItem('tradeflow.rate') || 'null') : null; if (c && c.rate > 0) { RATE = c.rate; RATE_AT = c.at; RATE_LIVE = true; } } catch (e) {}
-const STORE_KEY = 'tradeflow.v2';
+const API = String(CONFIG.apiUrl || '').replace(/\/$/, ''), API_MODE = !!API;
+let SESSION = null; try { SESSION = JSON.parse(localStorage.getItem('tradeflow.session') || 'null'); if (!SESSION || !SESSION.token) SESSION = null; } catch (e) {}
+try { const rc = new URLSearchParams(location.search).get('ref'); if (rc) localStorage.setItem('tradeflow.ref', rc.trim().toUpperCase().slice(0, 20)); } catch (e) {}   // a referral link remembers who invited you
+const STORE_KEY = API_MODE && SESSION ? 'tradeflow.u' + SESSION.user.id : 'tradeflow.v2';
 const TICK_MS = 2000;                    // live feed interval
 const REF_BASE = 'https://cryptocash.com/register?ref=';
 const MIN_DEPOSIT = 5000, MIN_WITHDRAW = 5;      // deposit minimum in UGX, withdrawal minimum in USD
@@ -102,7 +106,13 @@ const defaults = () => ({
   tx: [],
 });
 let S = defaults();
-try { const raw = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); if (raw) S = Object.assign(defaults(), raw, { profile: Object.assign(defaults().profile, raw.profile || {}) }); } catch (e) {}
+let ADOPTED = false;
+try {
+  let src = localStorage.getItem(STORE_KEY);
+  if (!src && API_MODE && SESSION && !localStorage.getItem('tradeflow.adopted')) { src = localStorage.getItem('tradeflow.v2'); ADOPTED = !!src; localStorage.setItem('tradeflow.adopted', '1'); }   // first account on this device keeps the old local wallet
+  const raw = JSON.parse(src || 'null'); if (raw) S = Object.assign(defaults(), raw, { profile: Object.assign(defaults().profile, raw.profile || {}) });
+  if (ADOPTED) (S.tx || []).forEach(t => { t.ev = 1; });
+} catch (e) {}
 /* older saves held the wallet in UGX and non-stock holdings: convert once */
 if (!S.ver || S.ver < 3) {
   const r = (S.tx.find(t => t.rate) || {}).rate || 3700;
@@ -111,9 +121,10 @@ if (!S.ver || S.ver < 3) {
   Object.keys(S.holdings || {}).forEach(k => { const h = S.holdings[k]; if (!STOCK_SYMS.includes(k)) { S.funds += h.qty * (h.avgU ?? h.avg); delete S.holdings[k]; } else { delete h.avgU; } });
   S.positions = S.positions || []; S.closed = S.closed || []; S.ver = 3;
 }
+if (API_MODE && SESSION && !S.profile._acct) { S.profile.name = SESSION.user.name; S.profile.phone = '+' + SESSION.user.phone; if (!ADOPTED) S.profile.email = ''; S.profile._acct = 1; }
 const save = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); } catch (e) {} };
 
-const REFS = { all: 0, today: 0, recent: [] };
+const REFS = { all: 0, today: 0, recent: [], l: [0, 0, 0] };
 
 /* ───────────── market engine (live feed) ─────────────
    Swap `tick()` for a WebSocket/REST provider: just write new prices into A[sym].price
@@ -455,7 +466,7 @@ function drawChart() {
 }
 
 function renderReferral() {
-  const code = (S.profile.name.split(' ')[0] || 'USER').toUpperCase() + '123', link = REF_BASE + code;
+  const code = API_MODE && SESSION ? SESSION.user.code : (S.profile.name.split(' ')[0] || 'USER').toUpperCase() + '123', link = API_MODE && SESSION ? location.origin + location.pathname.replace(/index\.html$/, '') + '?ref=' + code : REF_BASE + code;
   $('#page-referral').innerHTML = `
   <div class="top"><div></div><div class="top-actions">${themeBtn()}</div></div>
   <div class="ref-hero"><div class="ic">${ic('coin')}</div><h1>Referral Program</h1><p>Earn commissions on 3 levels of referrals. Share your link and start earning passive income today!</p></div>
@@ -466,7 +477,7 @@ function renderReferral() {
   </div>
   <div class="card"><div class="sec-head" style="margin:0"><h2>Your referral link</h2><span class="badge-active">Active</span></div>
     <div class="link-box"><input class="input" id="refLink" value="${link}" readonly><button class="btn sm" data-act="copy">${ic('copy')}Copy</button></div></div>
-  <div class="card"><div style="display:flex;align-items:center;gap:12px"><div style="flex:1"><div class="k small muted">Unclaimed commissions</div><div style="font-size:20px;font-weight:800" class="num" data-bind="refBal">${fUSD(S.refBal)}</div></div>
+  <div class="card"><div style="display:flex;align-items:center;gap:12px"><div style="flex:1"><div class="k small muted">Unclaimed commissions${API_MODE ? ' (paid on your network\'s deposits)' : ''}</div><div style="font-size:20px;font-weight:800" class="num" data-bind="refBal">${fUSD(S.refBal)}</div></div>
     <button class="btn sm green" data-act="claim">Move to wallet</button></div></div>
   <div class="block"><div class="sec-head"><h2>Share via</h2></div><div class="social">
     <button data-act="share" data-v="whatsapp" style="--c:#25d366">${ic('chat')}WhatsApp</button>
@@ -479,9 +490,9 @@ function renderReferral() {
     <div class="step"><div class="no">2</div><div><b>Friends sign up</b><p>Anyone who registers with your link becomes your direct referral.</p></div></div>
     <div class="step"><div class="no">3</div><div><b>Earn commissions</b><p>Get paid on 3 levels. The more active your network, the more you earn.</p></div></div></div></div>
   <div class="block"><div class="sec-head"><h2>Reward levels</h2></div><div class="levels">
-    <div class="level l1"><div class="pc">10%</div><b style="font-size:12px">Level A</b><small>Direct</small></div>
-    <div class="level l2"><div class="pc">5%</div><b style="font-size:12px">Level B</b><small>Team</small></div>
-    <div class="level l3"><div class="pc">2%</div><b style="font-size:12px">Level C</b><small>Network</small></div></div></div>
+    <div class="level l1"><div class="pc">10%</div><b style="font-size:12px">Level A</b><small>${API_MODE ? REFS.l[0] + ' people' : 'Direct'}</small></div>
+    <div class="level l2"><div class="pc">5%</div><b style="font-size:12px">Level B</b><small>${API_MODE ? REFS.l[1] + ' people' : 'Team'}</small></div>
+    <div class="level l3"><div class="pc">2%</div><b style="font-size:12px">Level C</b><small>${API_MODE ? REFS.l[2] + ' people' : 'Network'}</small></div></div></div>
   <div class="block"><div class="sec-head"><h2>Recent commissions</h2></div>
     ${REFS.recent.length ? REFS.recent.map(r => `<div class="tx"><div class="avatar" style="background:${r.c}">${initials(r.name.replace(/[._\d]/g, ' '))}</div><div class="mid"><b>${esc(r.name)}</b><span>Level ${r.lv} (${r.pct}%) · ${r.d}</span></div><div class="amt up num">+${fUSD(r.amt)}</div></div>`).join('') : '<div class="empty">No commissions yet. Share your link to start earning.</div>'}</div>`;
 }
@@ -801,7 +812,7 @@ function confirmMoney() {
 function settle(id, delay) {
   setTimeout(() => {
     const t = S.tx.find(x => x.id === id); if (!t || t.status !== 'pending') return;
-    t.status = 'done'; if (t.type === 'deposit') S.funds += t.amt; save();
+    t.status = 'done'; if (t.type === 'deposit') { S.funds += t.amt; sendDepositEvent(t); } save();
     toast(t.type === 'deposit' ? 'Deposit completed' : 'Withdrawal completed', t.type === 'deposit' ? `${fUSD(t.amt)} added to your wallet` : `${fUGX(t.ugx)} sent to your account`);
     refreshPage();
   }, delay);
@@ -824,6 +835,63 @@ function settingsSheet() {
   <p class="small muted" style="margin-top:12px;text-align:center">Prices: ${LIVE_DATA ? (feed.state === 'live' ? 'live market data' : feed.state === 'closed' ? 'market closed (last close)' : feed.state === 'error' ? 'feed unreachable' + (feed.msg ? ' (' + feed.msg + ')' : '') : 'connecting…') : 'demo feed (simulated)'}<br>Exchange rate: ${RATE_LIVE ? 'live, updated ' + hm(new Date(RATE_AT)) : 'fixed at 1 USD = UGX ' + rateTxt() + ' (virtual)'}<br>Data is stored on this device only.</p>`);
 }
 
+/* ───────────── accounts + referrals (only when CONFIG.apiUrl is set) ───────────── */
+async function apiFetch(path, opt = {}) {
+  let r; try { r = await fetch(API + path, { method: opt.method || 'GET', headers: Object.assign({ 'content-type': 'application/json' }, SESSION ? { Authorization: 'Bearer ' + SESSION.token } : {}), body: opt.body ? JSON.stringify(opt.body) : (opt.method === 'POST' ? '{}' : undefined) }); }
+  catch (e) { const er = new Error('Can\'t reach the server. Check your internet connection.'); er.status = 0; throw er; }
+  let j = {}; try { j = await r.json(); } catch (e) {}
+  if (r.status === 401 && SESSION && path !== '/login') { clearSession(); }
+  if (!r.ok) { const er = new Error(j.error || 'Something went wrong. Try again.'); er.status = r.status; throw er; }
+  return j;
+}
+function clearSession() { try { localStorage.removeItem('tradeflow.session'); history.replaceState(null, '', location.pathname); } catch (e) {} location.reload(); }
+const getRef = () => { try { return localStorage.getItem('tradeflow.ref') || ''; } catch (e) { return ''; } };
+let AUTH = { mode: getRef() ? 'register' : 'login', busy: false, err: '', inviter: '', f: { name: '', phone: '', pw: '', ref: getRef() } };
+function showAuth() { $('#auth').classList.remove('hidden'); drawAuth(); if (AUTH.f.ref) checkInvite(); }
+function drawAuth() {
+  const reg = AUTH.mode === 'register', f = AUTH.f;
+  $('#auth').innerHTML = `<div class="auth-card"><div class="logo">${ic('stocks')}</div><h1>${BRAND}</h1><p class="muted" style="margin-bottom:18px">${reg ? 'Create your account' : 'Welcome back'}</p>
+  <div class="seg"><button class="${!reg ? 'on' : ''}" data-act="amode" data-v="login">Sign in</button><button class="${reg ? 'on' : ''}" data-act="amode" data-v="register">Create account</button></div>
+  ${reg ? `<div class="field"><label>Full name</label><input class="input" id="aName" autocomplete="name" value="${esc(f.name)}"></div>` : ''}
+  <div class="field"><label>Phone number</label><input class="input" id="aPhone" type="tel" autocomplete="tel" placeholder="07XX XXX XXX" value="${esc(f.phone)}"></div>
+  <div class="field"><label>Password</label><input class="input" id="aPw" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}" placeholder="${reg ? 'At least 8 characters' : ''}" value="${esc(f.pw)}"></div>
+  ${reg ? `<div class="field"><label>Referral code <span class="muted">(optional)</span></label><input class="input" id="aRef" autocapitalize="characters" placeholder="e.g. RITA-7K3Q" value="${esc(f.ref)}"><div class="small" id="aInv" style="margin-top:6px;color:var(--up)">${AUTH.inviter ? 'You were invited by ' + esc(AUTH.inviter) + ' ✓' : ''}</div></div>` : ''}
+  <div class="err" id="aErr">${esc(AUTH.err)}</div>
+  <button class="btn" data-act="asubmit" ${AUTH.busy ? 'disabled' : ''}>${AUTH.busy ? 'Please wait…' : reg ? 'Create account' : 'Sign in'}</button>
+  <p class="small muted" style="text-align:center;margin-top:14px">Practice trading with virtual money. No real funds are used.</p></div>`;
+}
+let invT;
+function checkInvite() {
+  clearTimeout(invT); const c = AUTH.f.ref.trim(); AUTH.inviter = ''; const el = $('#aInv'); if (el) el.textContent = '';
+  if (c.length < 5) return;
+  invT = setTimeout(async () => { try { const r = await apiFetch('/invite?code=' + encodeURIComponent(c)); if (c === AUTH.f.ref.trim()) { AUTH.inviter = r.name; const e2 = $('#aInv'); if (e2) { e2.style.color = 'var(--up)'; e2.textContent = 'You were invited by ' + r.name + ' ✓'; } } } catch (e) { const e2 = $('#aInv'); if (e2 && e.status === 404) { e2.style.color = 'var(--down)'; e2.textContent = 'This code does not exist.'; } } }, 350);
+}
+async function authSubmit() {
+  if (AUTH.busy) return; const f = AUTH.f, reg = AUTH.mode === 'register', setErr = m => { AUTH.err = m; drawAuth(); };
+  if (reg && f.name.trim().length < 2) return setErr('Enter your full name.');
+  if (f.phone.replace(/\D/g, '').length < 9) return setErr('Enter a valid phone number.');
+  if (reg && f.pw.length < 8) return setErr('Password must be at least 8 characters.');
+  if (!f.pw) return setErr('Enter your password.');
+  AUTH.busy = true; AUTH.err = ''; drawAuth();
+  try {
+    const r = await apiFetch(reg ? '/register' : '/login', { method: 'POST', body: reg ? { name: f.name, phone: f.phone, password: f.pw, ref: f.ref.trim() } : { phone: f.phone, password: f.pw } });
+    localStorage.setItem('tradeflow.session', JSON.stringify(r)); localStorage.removeItem('tradeflow.ref'); history.replaceState(null, '', location.pathname + '#home'); location.reload();
+  } catch (e) { AUTH.busy = false; setErr(e.message); }
+}
+async function loadReferral() {
+  if (!API_MODE || !SESSION) return;
+  try {
+    const r = await apiFetch('/me'); REFS.all = r.all; REFS.today = r.today; REFS.l = r.levels;
+    REFS.recent = r.recent.map(x => ({ name: x.name, lv: x.level, pct: x.pct, d: new Date(x.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), amt: x.amount, c: ['#3b82f6', '#a855f7', '#f59e0b'][x.level - 1] }));
+    S.refEarned = r.earned; S.refBal = r.unclaimed; save();
+    if (page === 'referral') { const y = window.scrollY; renderReferral(); patchLive(true); applyTheme(); window.scrollTo({ top: y }); } else patchLive(true);
+  } catch (e) { /* offline: keep what we have */ }
+}
+function sendDepositEvent(t) {
+  if (!API_MODE || !SESSION || t.ev) return;
+  apiFetch('/event', { method: 'POST', body: { id: t.id, usd: t.amt } }).then(() => { t.ev = 1; save(); }).catch(e => { if (e.status === 400) { t.ev = 1; save(); } });
+}
+
 /* ───────────── navigation ───────────── */
 const PAGES = ['home', 'stocks', 'finance', 'referral', 'profile'], ICONS = ['home', 'stocks', 'wallet', 'users', 'user'];
 const RENDER = { home: renderHome, stocks: renderStocks, referral: renderReferral, profile: renderProfile, finance: renderFinance };
@@ -836,6 +904,7 @@ function go(p, opts = {}) {
   RENDER[p](); patchLive(true); applyTheme();
   if (changed || opts.top) window.scrollTo({ top: 0 });
   if (changed) pollQuotes();
+  if (p === 'referral') loadReferral();
   try { history.replaceState(null, '', '#' + p); } catch (e) {}
 }
 const refreshPage = () => { const y = window.scrollY; RENDER[page](); patchLive(true); applyTheme(); window.scrollTo({ top: y }); };
@@ -863,7 +932,15 @@ const ACT = {
   mmethod: d => { const amt = $('#mAmt').value; M.method = d.v; M.amt = parseFloat(amt) || 0; drawMoney(); },
   mconfirm: confirmMoney,
   finfilter: d => { finFilter = d.v; renderFinance(); },
-  claim: () => {
+  amode: d => { AUTH.mode = d.v; AUTH.err = ''; drawAuth(); if (d.v === 'register' && AUTH.f.ref) checkInvite(); }, asubmit: authSubmit,
+  claim: async () => {
+    if (API_MODE && SESSION) {
+      try { const r = await apiFetch('/claim', { method: 'POST' }); if (!(r.amount > 0)) return toast('Nothing to claim', 'No unclaimed commissions right now.', true);
+        S.funds += r.amount; S.refBal = 0; S.tx.push({ id: uid(), type: 'commission', title: 'Referral payout', sub: 'Moved to wallet', amt: r.amount, ts: Date.now(), status: 'done', ev: 1 }); save();
+        toast('Commissions moved', `${fUSD(r.amount)} added to your wallet`); refreshPage(); loadReferral(); }
+      catch (e) { toast('Could not claim', e.message, true); }
+      return;
+    }
     if (S.refBal <= 0) return toast('Nothing to claim', 'No unclaimed commissions right now.', true);
     const a = S.refBal; S.funds += a; S.refBal = 0;
     S.tx.push({ id: uid(), type: 'commission', title: 'Referral payout', sub: 'Moved to wallet', amt: a, ts: Date.now(), status: 'done' }); save();
@@ -882,7 +959,7 @@ const ACT = {
   editprofile: editProfile, password: changePassword, settings: settingsSheet,
   saveprofile: () => {
     const n = $('#pName').value.trim(), e = $('#pMail').value.trim(), ph = $('#pPhone').value.trim();
-    if (!n) return $('#pErr').textContent = 'Name is required.'; if (!/^\S+@\S+\.\S+$/.test(e)) return $('#pErr').textContent = 'Enter a valid email.';
+    if (!n) return $('#pErr').textContent = 'Name is required.'; if (e && !/^\S+@\S+\.\S+$/.test(e)) return $('#pErr').textContent = 'Enter a valid email.';
     S.profile.name = n; S.profile.email = e; S.profile.phone = ph; save(); closeSheet(); refreshPage(); toast('Profile updated', 'Your details were saved.');
   },
   savepw: () => {
@@ -892,7 +969,7 @@ const ACT = {
   },
   togglelive: () => { S.live = !S.live; save(); $('#liveSw')?.classList.toggle('on', S.live); patchLive(true); },
   reset: () => { try { localStorage.removeItem(STORE_KEY); } catch (e) {} const th = S.theme; S = defaults(); S.theme = th; save(); closeSheet(); refreshPage(); toast('Demo data reset', 'Balances and transactions restored.'); },
-  logout: () => $('#login').classList.remove('hidden'),
+  logout: () => { if (API_MODE && SESSION) { apiFetch('/logout', { method: 'POST' }).catch(() => {}).finally(clearSession); } else $('#login').classList.remove('hidden'); },
 };
 document.addEventListener('click', e => {
   const t = e.target.closest('[data-act]'); if (!t) return; const f = ACT[t.dataset.act]; if (f) f(t.dataset, t, e);
@@ -902,7 +979,9 @@ document.addEventListener('input', e => {
   if (e.target.id === 'tQty' && T) T.qty = e.target.value; if (e.target.id === 'tSL' && T) T.sl = e.target.value; if (e.target.id === 'tTP' && T) T.tp = e.target.value;
   if (['tQty', 'tLimit', 'tSL', 'tTP'].includes(e.target.id)) refreshTrade();
   if (e.target.id === 'mAmt') refreshMoney();
+  const af = { aName: 'name', aPhone: 'phone', aPw: 'pw', aRef: 'ref' }[e.target.id]; if (af) { AUTH.f[af] = e.target.value; if (af === 'ref') { AUTH.f.ref = e.target.value.toUpperCase(); checkInvite(); } }
 });
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.closest && e.target.closest('#auth')) authSubmit(); });
 $('#signIn').addEventListener('click', () => { $('#login').classList.add('hidden'); toast('Welcome back', S.profile.name); });
 
 /* nav bar */
@@ -985,13 +1064,18 @@ window.addEventListener('resize', () => { if (page === 'stocks') drawChart(); })
 document.addEventListener('visibilitychange', () => { if (!document.hidden) patchLive(true); });
 
 /* ───────────── boot ───────────── */
-initMarket();
-fetchRate(); setInterval(fetchRate, CONFIG.fxRefreshMs);
-if (LIVE_DATA) setInterval(pollQuotes, CONFIG.pollMs);
-S.tx.filter(t => t.status === 'pending').forEach(t => settle(t.id, 2000));
-applyTheme();
-go((location.hash || '#home').slice(1));
-pollQuotes();
+if (API_MODE && !SESSION) {
+  showAuth();                                   // not signed in: only the sign-in / create-account screen
+} else {
+  initMarket();
+  fetchRate(); setInterval(fetchRate, CONFIG.fxRefreshMs);
+  if (LIVE_DATA) setInterval(pollQuotes, CONFIG.pollMs);
+  S.tx.filter(t => t.status === 'pending').forEach(t => settle(t.id, 2000));
+  S.tx.filter(t => t.type === 'deposit' && t.status === 'done' && !t.ev).forEach(sendDepositEvent);
+  applyTheme(); save();
+  go((location.hash || '#home').slice(1));
+  pollQuotes(); loadReferral(); setInterval(() => { if (page === 'referral' && !document.hidden) loadReferral(); }, 30000);
+}
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
 window.__tf = { A, S: () => S, go, tick, afterTick };   // handy for debugging
 })();

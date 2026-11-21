@@ -1,0 +1,9 @@
+name = "tradeflow-api"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# Run:  npx wrangler d1 create tradeflow-db   then paste the database_id it prints below.
+[[d1_databases]]
+binding = "DB"
+database_name = "tradeflow-db"
+database_id = "PASTE-YOUR-DATABASE-ID-HERE"
