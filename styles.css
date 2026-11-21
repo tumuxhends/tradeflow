@@ -345,3 +345,18 @@ svg { display: block; }
 .cat-main { font-size: 15px; font-weight: 800; color: var(--text); border-radius: 14px; padding: 9px 18px; letter-spacing: -.2px; }
 .cat-main.on { background: var(--grad); color: #fff; border-color: transparent; box-shadow: 0 6px 16px var(--accent-glow); }
 .idx { cursor: pointer; }
+
+/* trade tags, stop-loss fields, success-rate bar */
+.tag { display: inline-block; padding: 1px 6px; border-radius: 6px; font-size: 10px; font-weight: 800; letter-spacing: .4px; vertical-align: 1px; }
+.tag.buy { background: var(--up-bg); color: var(--up); } .tag.sell { background: var(--down-bg); color: var(--down); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.winbar { height: 8px; border-radius: 99px; background: var(--down-bg); overflow: hidden; margin: 8px 0 8px; }
+.winbar i { display: block; height: 100%; border-radius: 99px; background: var(--up); }
+
+/* ── trades: tags, success bar, two-column fields ── */
+.tag { display: inline-block; padding: 2px 7px; border-radius: 6px; font-size: 10px; font-weight: 800; letter-spacing: .4px; vertical-align: 1px; }
+.tag.buy { background: var(--up-bg); color: var(--up); } .tag.sell { background: var(--down-bg); color: var(--down); }
+.winbar { height: 8px; border-radius: 999px; background: var(--down-bg); overflow: hidden; margin: 8px 0 8px; } .winbar i { display: block; height: 100%; background: var(--up); border-radius: 999px; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tx-ic.trade { background: var(--info-bg); color: var(--info); }
+.btn.ghost { width: 100%; }
