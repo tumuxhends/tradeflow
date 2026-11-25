@@ -6,7 +6,6 @@
 const ALLOWED_ORIGINS = ['https://tumuxhends.github.io', 'http://localhost:8000', 'http://127.0.0.1:8000'];
 const LEVEL_PCT = [10, 5, 2];                 // commission % for Level A (direct), B, C
 const DAY = 864e5, SESSION_DAYS = 90, UTC_OFFSET = 3 * 3600e3;   // "today" is counted in Uganda time (UTC+3)
-const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
 const enc = new TextEncoder();
 const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
@@ -18,7 +17,8 @@ async function pbkdf2(pw, saltHex) {
   return hex(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: unhex(saltHex), iterations: 100000 }, key, 256));
 }
 const normPhone = p => { let d = String(p || '').replace(/\D/g, ''); if (/^0\d{9}$/.test(d)) d = '256' + d.slice(1); return d; };
-const makeCode = name => { const l = (name.toUpperCase().replace(/[^A-Z]/g, '') + 'USER').slice(0, 4); let s = ''; for (let i = 0; i < 4; i++) s += CODE_CHARS[crypto.getRandomValues(new Uint8Array(1))[0] % CODE_CHARS.length]; return l + '-' + s; };
+/* a person's code = their first name + a number, e.g. RITA123 (a longer number is used if the short ones are taken) */
+const makeCode = (name, attempt) => { const first = (name.trim().split(/\s+/)[0] || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 10) || 'USER'; const n = attempt < 4 ? 100 + crypto.getRandomValues(new Uint32Array(1))[0] % 900 : 1000 + crypto.getRandomValues(new Uint32Array(1))[0] % 9000; return first + n; };
 
 export default {
   async fetch(req, env) {
@@ -57,7 +57,7 @@ export default {
       if (await db.prepare('SELECT id FROM users WHERE phone = ?').bind(phone).first()) return fail(409, 'This phone number already has an account. Sign in instead.');
       const salt = rand(16), hash = await pbkdf2(pw, salt); let id = null;
       for (let i = 0; i < 8 && !id; i++) {
-        try { const r = await db.prepare('INSERT INTO users (name, phone, salt, pass_hash, code, sponsor_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(name, phone, salt, hash, makeCode(name), sponsor ? sponsor.id : null, now).run(); id = r.meta.last_row_id; }
+        try { const r = await db.prepare('INSERT INTO users (name, phone, salt, pass_hash, code, sponsor_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(name, phone, salt, hash, makeCode(name, i), sponsor ? sponsor.id : null, now).run(); id = r.meta.last_row_id; }
         catch (e) { if (!/UNIQUE/i.test(String(e.message || e))) throw e; if (/phone/i.test(String(e.message || e))) return fail(409, 'This phone number already has an account. Sign in instead.'); }
       }
       if (!id) return fail(500, 'Could not create the account. Try again.');

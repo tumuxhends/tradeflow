@@ -33,7 +33,7 @@ let SESSION = null; try { SESSION = JSON.parse(localStorage.getItem('tradeflow.s
 try { const rc = new URLSearchParams(location.search).get('ref'); if (rc) localStorage.setItem('tradeflow.ref', rc.trim().toUpperCase().slice(0, 20)); } catch (e) {}   // a referral link remembers who invited you
 const STORE_KEY = API_MODE && SESSION ? 'tradeflow.u' + SESSION.user.id : 'tradeflow.v2';
 const TICK_MS = 2000;                    // live feed interval
-const REF_BASE = 'https://cryptocash.com/register?ref=';
+const REF_BASE = 'https://tumuxhends.github.io/tradeflow/?ref=';   // every referral link is this address + the person's own code
 const MIN_DEPOSIT = 5000, MIN_WITHDRAW = 5;      // deposit minimum in UGX, withdrawal minimum in USD
 
 /* ───────────── icons ───────────── */
@@ -466,7 +466,7 @@ function drawChart() {
 }
 
 function renderReferral() {
-  const code = API_MODE && SESSION ? SESSION.user.code : (S.profile.name.split(' ')[0] || 'USER').toUpperCase() + '123', link = API_MODE && SESSION ? location.origin + location.pathname.replace(/index\.html$/, '') + '?ref=' + code : REF_BASE + code;
+  const code = API_MODE && SESSION ? SESSION.user.code : (S.profile.name.split(' ')[0] || 'USER').toUpperCase() + '123', link = REF_BASE + code;
   $('#page-referral').innerHTML = `
   <div class="top"><div></div><div class="top-actions">${themeBtn()}</div></div>
   <div class="ref-hero"><div class="ic">${ic('coin')}</div><h1>Referral Program</h1><p>Earn commissions on 3 levels of referrals. Share your link and start earning passive income today!</p></div>
@@ -855,7 +855,7 @@ function drawAuth() {
   ${reg ? `<div class="field"><label>Full name</label><input class="input" id="aName" autocomplete="name" value="${esc(f.name)}"></div>` : ''}
   <div class="field"><label>Phone number</label><input class="input" id="aPhone" type="tel" autocomplete="tel" placeholder="07XX XXX XXX" value="${esc(f.phone)}"></div>
   <div class="field"><label>Password</label><input class="input" id="aPw" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}" placeholder="${reg ? 'At least 8 characters' : ''}" value="${esc(f.pw)}"></div>
-  ${reg ? `<div class="field"><label>Referral code <span class="muted">(optional)</span></label><input class="input" id="aRef" autocapitalize="characters" placeholder="e.g. RITA-7K3Q" value="${esc(f.ref)}"><div class="small" id="aInv" style="margin-top:6px;color:var(--up)">${AUTH.inviter ? 'You were invited by ' + esc(AUTH.inviter) + ' ✓' : ''}</div></div>` : ''}
+  ${reg ? `<div class="field"><label>Referral code <span class="muted">(optional)</span></label><input class="input" id="aRef" autocapitalize="characters" placeholder="e.g. RITA123" value="${esc(f.ref)}"><div class="small" id="aInv" style="margin-top:6px;color:var(--up)">${AUTH.inviter ? 'You were invited by ' + esc(AUTH.inviter) + ' ✓' : ''}</div></div>` : ''}
   <div class="err" id="aErr">${esc(AUTH.err)}</div>
   <button class="btn" data-act="asubmit" ${AUTH.busy ? 'disabled' : ''}>${AUTH.busy ? 'Please wait…' : reg ? 'Create account' : 'Sign in'}</button>
   <p class="small muted" style="text-align:center;margin-top:14px">Practice trading with virtual money. No real funds are used.</p></div>`;
